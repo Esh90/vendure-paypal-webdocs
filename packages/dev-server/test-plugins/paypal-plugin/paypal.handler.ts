@@ -1,4 +1,6 @@
 import {
+    CancelPaymentErrorResult,
+    CancelPaymentResult,
     CreatePaymentResult,
     LanguageCode,
     Logger,
@@ -29,6 +31,10 @@ let paypalService: PayPalService;
  *
  * In both flows the approved PayPal order ID must be supplied as `metadata.paypalOrderId` to the
  * `addPaymentToOrder` mutation.
+ *
+ * {@link cancelPayment} (Use Case 3) voids an authorization that has not yet been captured,
+ * releasing the reserved funds back to the buyer. Captured payments cannot be voided and must be
+ * refunded instead.
  */
 export const paypalPaymentHandler = new PaymentMethodHandler({
     code: PAYPAL_PAYMENT_HANDLER_CODE,
@@ -128,6 +134,40 @@ export const paypalPaymentHandler = new PaymentMethodHandler({
             const errorMessage = e instanceof Error ? e.message : String(e);
             Logger.warn(
                 `Failed to capture PayPal authorization for order ${order.code}: ${errorMessage}`,
+                loggerCtx,
+            );
+            return { success: false, errorMessage };
+        }
+    },
+    async cancelPayment(
+        ctx,
+        order,
+        payment,
+    ): Promise<CancelPaymentResult | CancelPaymentErrorResult> {
+        const metadata = (payment.metadata ?? {}) as Partial<PayPalPaymentMetadata>;
+        // Use Case 3: voiding is only valid for an authorization that has not been captured.
+        if (metadata.captureId) {
+            return {
+                success: false,
+                errorMessage:
+                    'Cannot void a PayPal payment that has already been captured. Issue a refund instead.',
+            };
+        }
+        if (!metadata.authorizationId) {
+            // No PayPal authorization exists to void (e.g. the payment never reached PayPal), so
+            // there is nothing to cancel on PayPal's side.
+            return { success: true };
+        }
+        try {
+            const result = await paypalService.voidAuthorization(ctx, order, metadata.authorizationId);
+            return {
+                success: true,
+                metadata: { ...metadata, status: result.status ?? 'VOIDED' },
+            };
+        } catch (e) {
+            const errorMessage = e instanceof Error ? e.message : String(e);
+            Logger.warn(
+                `Failed to void PayPal authorization for order ${order.code}: ${errorMessage}`,
                 loggerCtx,
             );
             return { success: false, errorMessage };

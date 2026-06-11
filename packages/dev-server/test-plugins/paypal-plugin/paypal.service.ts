@@ -362,6 +362,33 @@ export class PayPalService {
         };
     }
 
+    /**
+     * Voids (cancels) a previously-created PayPal authorization, releasing the reserved funds back
+     * to the buyer (Use Case 3). Only authorizations that have not been fully captured can be
+     * voided; PayPal rejects the call otherwise.
+     *
+     * @returns The PayPal authorization status after voiding (e.g. `VOIDED`), when returned.
+     */
+    async voidAuthorization(
+        ctx: RequestContext,
+        order: Order,
+        authorizationId: string,
+    ): Promise<{ status?: string }> {
+        try {
+            const { result } = await this.clientService.getPaymentsController().voidPayment({
+                authorizationId,
+                prefer: 'return=representation',
+            });
+            Logger.info(
+                `Voided PayPal authorization ${authorizationId} for Vendure order ${order.code}`,
+                loggerCtx,
+            );
+            return { status: result?.status };
+        } catch (e) {
+            throw this.toReadableError(e, `void PayPal authorization ${authorizationId}`);
+        }
+    }
+
     private async resolveOrder(ctx: RequestContext, orderId?: ID): Promise<Order> {
         const order = orderId
             ? await this.orderService.findOne(ctx, orderId)
