@@ -1,0 +1,1 @@
+{"version":3,"file":"stripe-client.js","sourceRoot":"","sources":["../../src/stripe/stripe-client.ts"],"names":[],"mappings":";;;;;;AAAA,oDAA4B;AAE5B;;GAEG;AACH,MAAa,mBAAoB,SAAQ,gBAAM;IAC3C,YAAoB,MAAc,EAAS,aAAqB;QAC5D,KAAK,CAAC,MAAM,EAAE;YACV,UAAU,EAAE,IAA0C,EAAE,+BAA+B;SAC1F,CAAC,CAAC;QAHa,WAAM,GAAN,MAAM,CAAQ;QAAS,kBAAa,GAAb,aAAa,CAAQ;IAIhE,CAAC;CACJ;AAND,kDAMC"}

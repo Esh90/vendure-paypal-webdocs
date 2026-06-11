@@ -1,0 +1,31 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.sanitizeMetadata = sanitizeMetadata;
+const MAX_KEYS = 50;
+const MAX_KEY_NAME_LENGTH = 40;
+const MAX_VALUE_LENGTH = 500;
+/**
+ * @description
+ * Santitize metadata to ensure it follow Stripe's instructions
+ *
+ * @link
+ * https://stripe.com/docs/api/metadata
+ *
+ * @Restriction
+ * You can specify up to 50 keys, with key names up to 40 characters long and values up to 500 characters long.
+ *
+ */
+function sanitizeMetadata(metadata) {
+    if (typeof metadata !== 'object' && metadata !== null)
+        return {};
+    const keys = Object.keys(metadata)
+        .filter(keyName => keyName.length <= MAX_KEY_NAME_LENGTH)
+        .filter(keyName => typeof metadata[keyName] !== 'string' || metadata[keyName].length <= MAX_VALUE_LENGTH)
+        .slice(0, MAX_KEYS);
+    const sanitizedMetadata = keys.reduce((obj, keyName) => {
+        obj[keyName] = metadata[keyName];
+        return obj;
+    }, {});
+    return sanitizedMetadata;
+}
+//# sourceMappingURL=metadata-sanitize.js.map

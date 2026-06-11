@@ -26,6 +26,7 @@ import path from 'path';
 import { DataSourceOptions } from 'typeorm';
 import { NavModifierPlugin } from './test-plugins/nav-modifier-plugin/nav-modifier-plugin';
 // import { FieldTestPlugin } from './test-plugins/field-test/field-test-plugin';
+import { PayPalPlugin } from './test-plugins/paypal-plugin';
 import { ReviewsPlugin } from './test-plugins/reviews/reviews-plugin';
 
 const IS_INSTRUMENTED = process.env.IS_INSTRUMENTED === 'true';
@@ -82,7 +83,7 @@ export const devConfig: VendureConfig = {
     },
     authOptions: {
         disableAuth: false,
-        tokenMethod: ['bearer', 'cookie', 'api-key'] as const,
+        tokenMethod: ['bearer', 'cookie'] as const,
         requireVerification: true,
         customPermissions: [],
         cookieOptions: {
@@ -123,6 +124,16 @@ export const devConfig: VendureConfig = {
         ReviewsPlugin,
         // FieldTestPlugin,
         NavModifierPlugin,
+        PayPalPlugin.init({
+            // Credentials & environment fall back to the PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET
+            // and PAYPAL_ENVIRONMENT environment variables when omitted here.
+            environment: 'sandbox',
+            brandName: 'Vendure Dev Store',
+            // Where PayPal redirects the buyer after approving / cancelling. For dev testing these
+            // point at a reachable page; a real storefront would use its checkout return page.
+            returnUrl: 'http://localhost:3000/graphiql/shop',
+            cancelUrl: 'http://localhost:3000/graphiql/shop',
+        }),
         GraphiqlPlugin.init(),
         AssetServerPlugin.init({
             route: 'assets',
