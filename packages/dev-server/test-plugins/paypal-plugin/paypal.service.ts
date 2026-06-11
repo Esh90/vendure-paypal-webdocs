@@ -9,7 +9,6 @@ import {
     UserInputError,
 } from '@vendure/core';
 import {
-    ApiError,
     AuthorizationStatus,
     CaptureStatus,
     CheckoutPaymentIntent,
@@ -22,6 +21,7 @@ import {
 
 import { loggerCtx, PAYPAL_PLUGIN_OPTIONS } from './constants';
 import { fromPayPalAmount, toPayPalAmount } from './paypal-amount';
+import { toReadablePayPalError } from './paypal-errors';
 import { PayPalClientService } from './paypal.client';
 import { PayPalPluginOptions } from './types';
 
@@ -448,69 +448,7 @@ export class PayPalService {
         return order;
     }
 
-    /**
-     * Normalises errors thrown by the PayPal SDK into a single, logged Error with a clear message.
-     * PayPal {@link ApiError}s carry an HTTP status code and a structured error body (`name`,
-     * `message`, `details[].issue`/`description`, `debug_id`). We extract the specific issue so the
-     * caller sees *why* PayPal rejected the request (e.g. `REFUND_FAILED_INSUFFICIENT_FUNDS`) rather
-     * than just the HTTP status. The full body is also written to the log for troubleshooting.
-     */
     private toReadableError(e: unknown, action: string): Error {
-        if (e instanceof ApiError) {
-            const rawBody = typeof e.body === 'string' ? e.body : JSON.stringify(e.result);
-            Logger.error(
-                `PayPal API error while attempting to ${action} (status ${e.statusCode}): ${
-                    e.message
-                } | ${rawBody}`,
-                loggerCtx,
-            );
-            const detail = this.describePayPalError(e);
-            return new Error(
-                `Failed to ${action}: PayPal responded with status ${e.statusCode}` +
-                    (detail ? ` — ${detail}` : ''),
-            );
-        }
-        const message = e instanceof Error ? e.message : String(e);
-        Logger.error(`Failed to ${action}: ${message}`, loggerCtx);
-        return e instanceof Error ? e : new Error(message);
-    }
-
-    /**
-     * Extracts a human-readable description from a PayPal error response. PayPal returns the error
-     * envelope either as the parsed `result` or, when it does not match the endpoint's success
-     * schema, as the raw JSON `body` string — both are handled here.
-     */
-    private describePayPalError(e: ApiError): string | undefined {
-        let envelope: any = e.result;
-        if ((!envelope || typeof envelope !== 'object') && typeof e.body === 'string') {
-            try {
-                envelope = JSON.parse(e.body);
-            } catch {
-                return undefined;
-            }
-        }
-        if (!envelope || typeof envelope !== 'object') {
-            return undefined;
-        }
-        const parts: string[] = [];
-        if (Array.isArray(envelope.details) && envelope.details.length > 0) {
-            for (const detail of envelope.details) {
-                if (detail && typeof detail === 'object') {
-                    const issue = typeof detail.issue === 'string' ? detail.issue : '';
-                    const description =
-                        typeof detail.description === 'string' ? detail.description : '';
-                    const combined = [issue, description].filter(Boolean).join(': ');
-                    if (combined) {
-                        parts.push(combined);
-                    }
-                }
-            }
-        } else if (typeof envelope.message === 'string') {
-            parts.push(envelope.message);
-        }
-        if (typeof envelope.debug_id === 'string') {
-            parts.push(`debug_id=${envelope.debug_id}`);
-        }
-        return parts.length > 0 ? parts.join(' | ') : undefined;
+        return toReadablePayPalError(e, action, loggerCtx);
     }
 }

@@ -1,6 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Logger } from '@vendure/core';
-import { Client, Environment, OrdersController, PaymentsController } from '@paypal/paypal-server-sdk';
+import {
+    Client,
+    Environment,
+    OrdersController,
+    PaymentsController,
+    SubscriptionsController,
+} from '@paypal/paypal-server-sdk';
 
 import { loggerCtx, PAYPAL_PLUGIN_OPTIONS } from './constants';
 import { PayPalPluginOptions } from './types';
@@ -18,6 +24,7 @@ export class PayPalClientService {
     private client: Client | undefined;
     private ordersController: OrdersController | undefined;
     private paymentsController: PaymentsController | undefined;
+    private subscriptionsController: SubscriptionsController | undefined;
 
     constructor(@Inject(PAYPAL_PLUGIN_OPTIONS) private readonly options: PayPalPluginOptions) {}
 
@@ -65,6 +72,17 @@ export class PayPalClientService {
             this.paymentsController = new PaymentsController(this.getClient());
         }
         return this.paymentsController;
+    }
+
+    /**
+     * Returns the shared {@link SubscriptionsController} instance, used to manage billing plans and
+     * subscriptions. Creates the underlying client on first use.
+     */
+    getSubscriptionsController(): SubscriptionsController {
+        if (!this.subscriptionsController) {
+            this.subscriptionsController = new SubscriptionsController(this.getClient());
+        }
+        return this.subscriptionsController;
     }
 
     private getClient(): Client {
