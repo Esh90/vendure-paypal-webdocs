@@ -2,9 +2,11 @@ import {
     CancelPaymentErrorResult,
     CancelPaymentResult,
     CreatePaymentResult,
+    CreateRefundResult,
     LanguageCode,
     Logger,
     PaymentMethodHandler,
+    RefundState,
     SettlePaymentErrorResult,
     SettlePaymentResult,
 } from '@vendure/core';
@@ -35,6 +37,9 @@ let paypalService: PayPalService;
  * {@link cancelPayment} (Use Case 3) voids an authorization that has not yet been captured,
  * releasing the reserved funds back to the buyer. Captured payments cannot be voided and must be
  * refunded instead.
+ *
+ * {@link createRefund} (Use Cases 4 & 5) refunds a captured payment — in full when the requested
+ * amount covers the whole payment, or partially otherwise.
  */
 export const paypalPaymentHandler = new PaymentMethodHandler({
     code: PAYPAL_PAYMENT_HANDLER_CODE,
@@ -171,6 +176,42 @@ export const paypalPaymentHandler = new PaymentMethodHandler({
                 loggerCtx,
             );
             return { success: false, errorMessage };
+        }
+    },
+    async createRefund(ctx, input, amount, order, payment): Promise<CreateRefundResult> {
+        const metadata = (payment.metadata ?? {}) as Partial<PayPalPaymentMetadata>;
+        const captureId = metadata.captureId;
+        if (!captureId) {
+            const errorMessage =
+                'Cannot refund a PayPal payment that has not been captured (no capture ID found).';
+            Logger.warn(`${errorMessage} Order: ${order.code}`, loggerCtx);
+            return { state: 'Failed', metadata: { errorMessage } };
+        }
+        // A full refund (Use Case 4) refunds the entire captured amount; a smaller amount is a
+        // partial refund (Use Case 5).
+        const fullRefund = amount >= payment.amount;
+        try {
+            const refund = await paypalService.refundCapture(ctx, order, captureId, amount, {
+                fullRefund,
+            });
+            const state: RefundState =
+                refund.status === 'COMPLETED'
+                    ? 'Settled'
+                    : refund.status === 'PENDING'
+                      ? 'Pending'
+                      : 'Failed';
+            return {
+                state,
+                transactionId: refund.refundId,
+                metadata: { refundId: refund.refundId, status: refund.status },
+            };
+        } catch (e) {
+            const errorMessage = e instanceof Error ? e.message : String(e);
+            Logger.error(
+                `Failed to refund PayPal payment for order ${order.code}: ${errorMessage}`,
+                loggerCtx,
+            );
+            return { state: 'Failed', metadata: { errorMessage } };
         }
     },
 });
