@@ -9,3 +9,5 @@ export * from './subscription/paypal-subscription.service';
 export * from './subscription/paypal-subscription.task';
 export * from './subscription/subscription-types';
 export * from './subscription/entities/paypal-subscription.entity';
+export * from './reporting/paypal-reporting.service';
+export * from './reporting/reporting-types';

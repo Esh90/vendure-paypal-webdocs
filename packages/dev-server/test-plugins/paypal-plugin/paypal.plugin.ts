@@ -7,6 +7,9 @@ import { PAYPAL_PLUGIN_OPTIONS } from './constants';
 import { paypalPaymentHandler } from './paypal.handler';
 import { PayPalClientService } from './paypal.client';
 import { PayPalService } from './paypal.service';
+import { reportingApiExtensions } from './reporting/api/reporting-api-extensions';
+import { PayPalReportingAdminResolver } from './reporting/api/reporting-admin.resolver';
+import { PayPalReportingService } from './reporting/paypal-reporting.service';
 import {
     adminSubscriptionApiExtensions,
     shopSubscriptionApiExtensions,
@@ -36,6 +39,8 @@ function mergeDocuments(...documents: DocumentNode[]): DocumentNode {
  *  - Payment void (UC3), full and partial refunds (UC4/UC5), via the handler lifecycle methods.
  *  - Subscription billing (UC6): a dedicated module with its own entity, service, GraphQL
  *    resolvers, and a scheduled task that reconciles subscription status with PayPal.
+ *  - Transaction reporting (UC7): Admin API queries proxying PayPal transaction search (with
+ *    automatic 31-day window stitching) and account balances, for reconciliation.
  *
  * Register a Vendure PaymentMethod that uses the `paypal` handler to enable the checkout flows.
  *
@@ -58,6 +63,7 @@ function mergeDocuments(...documents: DocumentNode[]): DocumentNode {
         PayPalClientService,
         PayPalService,
         PayPalSubscriptionService,
+        PayPalReportingService,
         {
             provide: PAYPAL_PLUGIN_OPTIONS,
             useFactory: () => PayPalPlugin.options,
@@ -68,8 +74,8 @@ function mergeDocuments(...documents: DocumentNode[]): DocumentNode {
         resolvers: [PayPalShopResolver, PayPalSubscriptionShopResolver],
     },
     adminApiExtensions: {
-        schema: adminSubscriptionApiExtensions,
-        resolvers: [PayPalSubscriptionAdminResolver],
+        schema: mergeDocuments(adminSubscriptionApiExtensions, reportingApiExtensions),
+        resolvers: [PayPalSubscriptionAdminResolver, PayPalReportingAdminResolver],
     },
     configuration: config => {
         config.paymentOptions.paymentMethodHandlers.push(paypalPaymentHandler);

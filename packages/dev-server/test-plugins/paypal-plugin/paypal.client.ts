@@ -6,6 +6,7 @@ import {
     OrdersController,
     PaymentsController,
     SubscriptionsController,
+    TransactionSearchController,
 } from '@paypal/paypal-server-sdk';
 
 import { loggerCtx, PAYPAL_PLUGIN_OPTIONS } from './constants';
@@ -25,6 +26,7 @@ export class PayPalClientService {
     private ordersController: OrdersController | undefined;
     private paymentsController: PaymentsController | undefined;
     private subscriptionsController: SubscriptionsController | undefined;
+    private transactionSearchController: TransactionSearchController | undefined;
 
     constructor(@Inject(PAYPAL_PLUGIN_OPTIONS) private readonly options: PayPalPluginOptions) {}
 
@@ -83,6 +85,17 @@ export class PayPalClientService {
             this.subscriptionsController = new SubscriptionsController(this.getClient());
         }
         return this.subscriptionsController;
+    }
+
+    /**
+     * Returns the shared {@link TransactionSearchController} instance, used for transaction and
+     * balance reporting. Creates the underlying client on first use.
+     */
+    getTransactionSearchController(): TransactionSearchController {
+        if (!this.transactionSearchController) {
+            this.transactionSearchController = new TransactionSearchController(this.getClient());
+        }
+        return this.transactionSearchController;
     }
 
     private getClient(): Client {
