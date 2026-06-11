@@ -10,6 +10,7 @@ import { PayPalService } from './paypal.service';
 import { reportingApiExtensions } from './reporting/api/reporting-api-extensions';
 import { PayPalReportingAdminResolver } from './reporting/api/reporting-admin.resolver';
 import { PayPalReportingService } from './reporting/paypal-reporting.service';
+import { PayPalTrackingService } from './tracking/paypal-tracking.service';
 import {
     adminSubscriptionApiExtensions,
     shopSubscriptionApiExtensions,
@@ -41,6 +42,8 @@ function mergeDocuments(...documents: DocumentNode[]): DocumentNode {
  *    resolvers, and a scheduled task that reconciles subscription status with PayPal.
  *  - Transaction reporting (UC7): Admin API queries proxying PayPal transaction search (with
  *    automatic 31-day window stitching) and account balances, for reconciliation.
+ *  - Shipment tracking (UC8): an EventBus subscription that pushes carrier + tracking number to
+ *    PayPal when a fulfillment is shipped, so the buyer sees tracking in their PayPal account.
  *
  * Register a Vendure PaymentMethod that uses the `paypal` handler to enable the checkout flows.
  *
@@ -64,6 +67,7 @@ function mergeDocuments(...documents: DocumentNode[]): DocumentNode {
         PayPalService,
         PayPalSubscriptionService,
         PayPalReportingService,
+        PayPalTrackingService,
         {
             provide: PAYPAL_PLUGIN_OPTIONS,
             useFactory: () => PayPalPlugin.options,
