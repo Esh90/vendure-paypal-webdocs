@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Logger } from '@vendure/core';
-import { Client, Environment, OrdersController } from '@paypal/paypal-server-sdk';
+import { Client, Environment, OrdersController, PaymentsController } from '@paypal/paypal-server-sdk';
 
 import { loggerCtx, PAYPAL_PLUGIN_OPTIONS } from './constants';
 import { PayPalPluginOptions } from './types';
@@ -17,6 +17,7 @@ import { PayPalPluginOptions } from './types';
 export class PayPalClientService {
     private client: Client | undefined;
     private ordersController: OrdersController | undefined;
+    private paymentsController: PaymentsController | undefined;
 
     constructor(@Inject(PAYPAL_PLUGIN_OPTIONS) private readonly options: PayPalPluginOptions) {}
 
@@ -53,6 +54,17 @@ export class PayPalClientService {
             this.ordersController = new OrdersController(this.getClient());
         }
         return this.ordersController;
+    }
+
+    /**
+     * Returns the shared {@link PaymentsController} instance, used to capture, void and refund
+     * authorizations and captures. Creates the underlying client on first use.
+     */
+    getPaymentsController(): PaymentsController {
+        if (!this.paymentsController) {
+            this.paymentsController = new PaymentsController(this.getClient());
+        }
+        return this.paymentsController;
     }
 
     private getClient(): Client {

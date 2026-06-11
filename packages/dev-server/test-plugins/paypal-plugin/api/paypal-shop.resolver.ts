@@ -11,7 +11,13 @@ export class PayPalShopResolver {
     @Allow(Permission.Public)
     async createPayPalCheckout(
         @Ctx() ctx: RequestContext,
-        @Args('input') input?: { orderId?: ID; returnUrl?: string; cancelUrl?: string },
+        @Args('input')
+        input?: {
+            orderId?: ID;
+            intent?: 'CAPTURE' | 'AUTHORIZE';
+            returnUrl?: string;
+            cancelUrl?: string;
+        },
     ): Promise<PayPalCheckoutResult> {
         return this.paypalService.createCheckout(ctx, input ?? {});
     }

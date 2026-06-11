@@ -50,8 +50,12 @@ export interface PayPalPluginOptions {
 export interface PayPalPaymentMetadata {
     /** The PayPal order ID (the `id` returned by `createOrder`). */
     paypalOrderId: string;
+    /** The intent the PayPal order was created with. */
+    intent?: 'CAPTURE' | 'AUTHORIZE';
+    /** The PayPal authorization ID, present for the authorize-then-capture flow before capture. */
+    authorizationId?: string;
     /** The PayPal capture ID, present once funds have been captured. */
     captureId?: string;
-    /** The PayPal order/capture status at the time the payment was created. */
+    /** The PayPal order/authorization/capture status at the time the payment was created/settled. */
     status?: string;
 }

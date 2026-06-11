@@ -10,6 +10,8 @@ import {
 } from '@vendure/core';
 import {
     ApiError,
+    AuthorizationStatus,
+    CaptureStatus,
     CheckoutPaymentIntent,
     OrderRequest,
     OrderStatus,
@@ -35,7 +37,7 @@ export interface PayPalCheckoutResult {
 }
 
 /**
- * The result of capturing an approved PayPal order.
+ * The result of capturing an approved PayPal order (or a previously-created authorization).
  */
 export interface PayPalCaptureResult {
     /** The PayPal capture ID. */
@@ -44,6 +46,18 @@ export interface PayPalCaptureResult {
     status: string;
     /** The captured amount in Vendure integer minor units. */
     capturedMinorUnits: number;
+}
+
+/**
+ * The result of authorizing (reserving funds for) an approved PayPal order.
+ */
+export interface PayPalAuthorizeResult {
+    /** The PayPal authorization ID. Required to later capture or void the authorization. */
+    authorizationId: string;
+    /** The PayPal authorization status, e.g. `CREATED`. */
+    status: string;
+    /** The authorized amount in Vendure integer minor units. */
+    authorizedMinorUnits: number;
 }
 
 /**
@@ -66,17 +80,30 @@ export class PayPalService {
     ) {}
 
     /**
-     * Creates a PayPal order (intent `CAPTURE`) for the buyer's active Vendure order and returns the
-     * approval URL. The PayPal order amount is set to the Vendure order's outstanding total.
+     * Creates a PayPal order for the buyer's active Vendure order and returns the approval URL.
+     * The PayPal order amount is set to the Vendure order's outstanding total.
+     *
+     * The `intent` controls the flow: `CAPTURE` (default) captures funds immediately when the
+     * payment is added to the order (Use Case 1); `AUTHORIZE` only reserves the funds, which are
+     * later captured when the Vendure payment is settled (Use Case 2).
      */
     async createCheckout(
         ctx: RequestContext,
-        input: { orderId?: ID; returnUrl?: string; cancelUrl?: string },
+        input: {
+            orderId?: ID;
+            intent?: 'CAPTURE' | 'AUTHORIZE';
+            returnUrl?: string;
+            cancelUrl?: string;
+        },
     ): Promise<PayPalCheckoutResult> {
         const order = await this.resolveOrder(ctx, input.orderId);
         if (order.totalWithTax <= 0) {
             throw new UserInputError(`Order ${order.code} has no outstanding amount to pay`);
         }
+        const intent =
+            input.intent === 'AUTHORIZE'
+                ? CheckoutPaymentIntent.Authorize
+                : CheckoutPaymentIntent.Capture;
 
         const { returnUrl: defaultReturnUrl, cancelUrl: defaultCancelUrl } =
             this.clientService.getRedirectUrls();
@@ -98,7 +125,7 @@ export class PayPalService {
         // Use the modern `payment_source.paypal.experience_context` (the `application_context`
         // object is deprecated and its return_url is increasingly ignored by PayPal).
         const body: OrderRequest = {
-            intent: CheckoutPaymentIntent.Capture,
+            intent,
             purchaseUnits: [
                 {
                     referenceId: 'default',
@@ -198,6 +225,139 @@ export class PayPalService {
         return {
             captureId: capture.id,
             status: capture.status ?? captured.status,
+            capturedMinorUnits,
+        };
+    }
+
+    /**
+     * Looks up the `intent` (`CAPTURE` or `AUTHORIZE`) that a PayPal order was created with. The
+     * PayPal order is the single source of truth, so the handler does not have to trust a
+     * client-supplied value when deciding whether to capture or authorize.
+     */
+    async getOrderIntent(paypalOrderId: string): Promise<CheckoutPaymentIntent> {
+        try {
+            const { result } = await this.clientService
+                .getOrdersController()
+                .getOrder({ id: paypalOrderId });
+            return result.intent ?? CheckoutPaymentIntent.Capture;
+        } catch (e) {
+            throw this.toReadableError(e, `read PayPal order ${paypalOrderId}`);
+        }
+    }
+
+    /**
+     * Authorizes (reserves funds for) a previously-approved PayPal order without capturing. Verifies
+     * the authorized amount matches the expected Vendure amount and returns the authorization
+     * details for storage on the Payment.
+     *
+     * @param expectedMinorUnits The amount Vendure expects to be authorized, in integer minor units.
+     */
+    async authorizeApprovedOrder(
+        ctx: RequestContext,
+        order: Order,
+        paypalOrderId: string,
+        expectedMinorUnits: number,
+    ): Promise<PayPalAuthorizeResult> {
+        let authorized;
+        try {
+            const { result } = await this.clientService.getOrdersController().authorizeOrder({
+                id: paypalOrderId,
+                prefer: 'return=representation',
+            });
+            authorized = result;
+        } catch (e) {
+            throw this.toReadableError(e, `authorize PayPal order ${paypalOrderId}`);
+        }
+
+        const authorization = authorized.purchaseUnits?.[0]?.payments?.authorizations?.[0];
+        if (!authorization?.id || !authorization.amount) {
+            throw new Error(`PayPal order ${paypalOrderId} returned no authorization details`);
+        }
+        if (
+            authorization.status !== AuthorizationStatus.Created &&
+            authorization.status !== AuthorizationStatus.Pending
+        ) {
+            throw new Error(
+                `PayPal order ${paypalOrderId} could not be authorized (authorization status: ${
+                    authorization.status ?? 'UNKNOWN'
+                })`,
+            );
+        }
+
+        const authorizedMinorUnits = fromPayPalAmount(
+            authorization.amount.value,
+            authorization.amount.currencyCode,
+        );
+        if (authorizedMinorUnits !== expectedMinorUnits) {
+            throw new Error(
+                `Authorized amount (${authorizedMinorUnits}) does not match the expected amount ` +
+                    `(${expectedMinorUnits}) for order ${order.code}`,
+            );
+        }
+
+        Logger.info(
+            `Authorized PayPal payment ${authorization.id} for Vendure order ${order.code}`,
+            loggerCtx,
+        );
+        return {
+            authorizationId: authorization.id,
+            status: authorization.status,
+            authorizedMinorUnits,
+        };
+    }
+
+    /**
+     * Captures a previously-created PayPal authorization in full (Use Case 2 settlement). Verifies
+     * the captured amount matches the expected Vendure amount and returns the capture details.
+     *
+     * @param expectedMinorUnits The amount Vendure expects to be captured, in integer minor units.
+     */
+    async captureAuthorization(
+        ctx: RequestContext,
+        order: Order,
+        authorizationId: string,
+        expectedMinorUnits: number,
+    ): Promise<PayPalCaptureResult> {
+        let capture;
+        try {
+            const { result } = await this.clientService.getPaymentsController().captureAuthorizedPayment({
+                authorizationId,
+                prefer: 'return=representation',
+            });
+            capture = result;
+        } catch (e) {
+            throw this.toReadableError(e, `capture PayPal authorization ${authorizationId}`);
+        }
+
+        if (capture.status !== CaptureStatus.Completed) {
+            throw new Error(
+                `PayPal authorization ${authorizationId} could not be captured (status: ${
+                    capture.status ?? 'UNKNOWN'
+                })`,
+            );
+        }
+        if (!capture.id || !capture.amount) {
+            throw new Error(
+                `PayPal authorization ${authorizationId} returned no capture details`,
+            );
+        }
+
+        const capturedMinorUnits = fromPayPalAmount(capture.amount.value, capture.amount.currencyCode);
+        if (capturedMinorUnits !== expectedMinorUnits) {
+            throw new Error(
+                `Captured amount (${capturedMinorUnits}) does not match the expected amount ` +
+                    `(${expectedMinorUnits}) for order ${order.code}`,
+            );
+        }
+
+        Logger.info(
+            `Captured PayPal authorization ${authorizationId} as capture ${capture.id} for ` +
+                `Vendure order ${order.code}`,
+            loggerCtx,
+        );
+        return {
+            captureId: capture.id,
+            status: capture.status,
             capturedMinorUnits,
         };
     }
