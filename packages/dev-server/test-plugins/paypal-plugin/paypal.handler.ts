@@ -187,8 +187,16 @@ export const paypalPaymentHandler = new PaymentMethodHandler({
             Logger.warn(`${errorMessage} Order: ${order.code}`, loggerCtx);
             return { state: 'Failed', metadata: { errorMessage } };
         }
-        // A full refund (Use Case 4) refunds the entire captured amount; a smaller amount is a
-        // partial refund (Use Case 5).
+        if (!Number.isFinite(amount) || amount <= 0) {
+            const errorMessage = `Refund amount must be a positive value (received ${amount}).`;
+            Logger.warn(`${errorMessage} Order: ${order.code}`, loggerCtx);
+            return { state: 'Failed', metadata: { errorMessage } };
+        }
+        // A full refund (Use Case 4) refunds the entire captured amount in a single request, so the
+        // amount is omitted. Any smaller amount is a partial refund (Use Case 5) and is sent
+        // explicitly. PayPal allows multiple partial refunds against the same capture, each bounded
+        // by Vendure to the remaining refundable balance, so a partial that clears the remainder is
+        // still sent as an explicit amount (it is less than the original payment total).
         const fullRefund = amount >= payment.amount;
         try {
             const refund = await paypalService.refundCapture(ctx, order, captureId, amount, {

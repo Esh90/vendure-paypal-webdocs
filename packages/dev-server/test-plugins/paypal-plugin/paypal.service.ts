@@ -423,9 +423,13 @@ export class PayPalService {
             if (!result.id) {
                 throw new Error('PayPal did not return a refund ID');
             }
+            const refundedLabel = options.fullRefund
+                ? 'full amount'
+                : `${toPayPalAmount(amountMinorUnits, order.currencyCode)} ${order.currencyCode}`;
             Logger.info(
-                `Refunded ${options.fullRefund ? 'full' : amountMinorUnits.toString()} amount as ` +
-                    `PayPal refund ${result.id} for Vendure order ${order.code}`,
+                `Refunded ${refundedLabel} as PayPal refund ${result.id} (status ${
+                    result.status ?? 'PENDING'
+                }) for Vendure order ${order.code}`,
                 loggerCtx,
             );
             return { refundId: result.id, status: result.status ?? 'PENDING' };
